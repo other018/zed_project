@@ -1,0 +1,234 @@
+---
+title: "Raport"
+author: "Zuzanna Zelek"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r preparingStage, message=FALSE, warning=FALSE}
+if(!require(readxl)) install.packages("readxl", repos = "http://cran.us.r-project.org")
+library(readxl)
+
+if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
+library(dplyr)
+
+if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
+library(ggplot2)
+
+if(!require(gganimate)) install.packages("gganimate", repos = "http://cran.us.r-project.org")
+library(gganimate)
+
+if(!require(magick)) install.packages("magick", repos = "http://cran.us.r-project.org")
+library(magick)
+
+if(!require(tidyr)) install.packages("tidyr", repos = "http://cran.us.r-project.org")
+library(tidyr)
+
+if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
+library(corrplot)
+
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+library(caret)
+```
+
+```{r repeatability}
+set.seed(24)
+```
+
+```{r readingFiles}
+worldDevelopmentIndicators  <- read_xlsx("Data pack/World_Development_Indicators.xlsx", na = '..')
+
+currencyExchangeRates <- read.csv("Data pack/CurrencyExchangeRates.csv")
+goldPrices <- read.csv("Data pack/Gold prices.csv")
+spComposite <- read.csv("Data Pack/S&P Composite.csv")
+
+bitcoinMeta <- read.csv("Data pack/Bitcoin/BCHAIN_metadata.csv")
+bitcoinDiff <- read.csv("Data pack/Bitcoin/BCHAIN-DIFF.csv")
+bitcoinHrate <- read.csv("Data pack/Bitcoin/BCHAIN-HRATE.csv")
+bitcoinMkpru <- read.csv("Data pack/Bitcoin/BCHAIN-MKPRU.csv")
+bitcoinTrvou <- read.csv("Data pack/Bitcoin/BCHAIN-TRVOU.csv")
+```
+
+```{r clearingData}
+#World development indicators
+wdi <- rename(worldDevelopmentIndicators, countryName = 'Country Name', countryCode = 'Country Code', seriesName = 'Series Name', seriesCode = 'Series Code')
+wdi <- slice(wdi, 1:(n()-5))
+wdi <- gather(wdi, "year", "value", 5:55)
+wdi <- select(wdi, -c('countryCode', 'seriesName'))
+wdi <- mutate(wdi, year=strtoi(substr(year, 1,4)))
+wdi <- pivot_wider(wdi, names_from=seriesCode, values_from = value, values_fill = 0)
+
+serieCodesExplain <- rename(worldDevelopmentIndicators, countryName = 'Country Name', countryCode = 'Country Code', seriesName = 'Series Name', seriesCode = 'Series Code')
+serieCodesExplain <- select(serieCodesExplain, seriesCode, seriesName)
+serieCodesExplain <- distinct(serieCodesExplain)
+
+goldPrices <- group_by(goldPrices, year=substr(Date, 1, 4), month=substr(Date, 6, 7)) %>%
+  summarise(
+    usdAm=median(USD..AM., na.rm=T),
+    usdPm=median(USD..PM., na.rm=T),
+    gbpAm=median(GBP..AM., na.rm=T),
+    gbpPm=median(GBP..PM., na.rm=T),
+    euroAm=median(EURO..AM., na.rm=T),
+    euroPm=median(EURO..PM., na.rm=T)
+  )
+
+spComposite <- group_by(spComposite, year=substr(Year, 1, 4)) %>%
+  summarise(
+    spComposite=median(S.P.Composite, na.rm=T),
+    dividend=median(Dividend, na.rm=T),
+    earnings=median(Earnings, na.rm=T),
+    cpi=median(CPI, na.rm=T),
+    longInterestRate=median(Long.Interest.Rate, na.rm=T),
+    realPrice=median(Real.Price, na.rm=T),
+    realDividend=median(Real.Dividend, na.rm=T),
+    realEarnings=median(Real.Earnings, na.rm=T),
+    cyclicallyAdjustedPeRatio=median(Cyclically.Adjusted.PE.Ratio, na.rm=T)
+  )
+
+bitcoinDiff <- group_by(bitcoinDiff, year=substr(Date, 1, 4)) %>%
+  summarise(value=median(Value, na.rm=T))
+
+bitcoinHrate <- group_by(bitcoinHrate, year=substr(Date, 1, 4)) %>%
+  summarise(value=median(Value, na.rm=T))
+
+bitcoinMkpru <- group_by(bitcoinMkpru, year=substr(Date, 1, 4)) %>%
+  summarise(value=median(Value, na.rm=T))
+
+bitcoinTrvou <- group_by(bitcoinTrvou, year=substr(Date, 1, 4)) %>%
+  summarise(value=median(Value, na.rm=T))
+
+```
+
+
+```{r shortSummary}
+
+knitr::kable(summary(wdi))
+knitr::kable(summary(goldPrices))
+
+```
+
+```{r filteringWdi}
+
+incomeCountries <- c('High income', 'Upper middle income', 'Middle income', 'Low & middle income', 'Lower middle income', 'Low income')
+
+worldCountries <- c('World')
+
+wdiIncome <- filter(wdi, countryName %in% incomeCountries)
+wdiWorld <- filter(wdi, countryName %in% worldCountries)
+
+```
+
+
+```{r corelateAllForIncome}
+wdiIncome[is.na(wdiIncome)] = 0
+wdiIncomeCor <- cor(select(wdiIncome, -c('countryName', 'year')))
+#corrplot(wdiIncomeCor)
+
+wdiIncomeCor[(wdiIncomeCor<0.8 & wdiIncomeCor>-0.8) | (wdiIncomeCor>0.9 | wdiIncomeCor<(-0.9))] = NA
+#wdiIncomeCor[wdiIncomeCor<0.8 & wdiIncomeCor>-0.8] = NA
+#View(colSums(abs(wdiIncomeCor), na.rm=T))
+#selectedWdiCor <- wdiCor[names(colSumsResult)[colSumsResult], names(colSumsResult)[colSumsResult]]
+
+
+wdiIncomeCor <- wdiIncomeCor+diag(NA, nrow(wdiIncomeCor))
+selectedWdiIncomeCor <- wdiIncomeCor[rowSums(is.na(wdiIncomeCor)) != ncol(wdiIncomeCor), colSums(is.na(wdiIncomeCor)) != nrow(wdiIncomeCor)]
+
+#set.seed(24)
+sampledHighCorColumns <- sample(colnames(selectedWdiIncomeCor), 15)
+
+
+sampledWdiIncomeCor <- cor(select(wdiIncome, all_of(sampledHighCorColumns)))
+View(sampledWdiIncomeCor)
+
+filter(serieCodesExplain, seriesCode %in% sampledHighCorColumns) %>% arrange(seriesCode)
+
+```
+
+
+```{r incomeCorrplot, fig.height = 15, fig.width = 15}
+corrplot(sampledWdiIncomeCor, order = 'alphabet')
+```
+
+
+```{r corelateAllForWorld}
+
+wdiWorld[is.na(wdiWorld)] = 0
+wdiWorldCor <- cor(select(wdiWorld, -c('countryName', 'year')))
+#corrplot(wdiWorldCor)
+
+wdiWorldCor[(wdiWorldCor<0.8 & wdiWorldCor>-0.8) | (wdiWorldCor>0.9 | wdiWorldCor<(-0.9))] = NA
+#wdiWorldCor[wdiWorldCor<0.8 & wdiWorldCor>-0.8] = NA
+#View(colSums(abs(wdiWorldCor), na.rm=T))
+
+
+wdiWorldCor <- wdiWorldCor+diag(NA, nrow(wdiWorldCor))
+selectedWdiWorldCor <- wdiWorldCor[rowSums(is.na(wdiWorldCor)) != ncol(wdiWorldCor), colSums(is.na(wdiWorldCor)) != nrow(wdiWorldCor)]
+
+#set.seed(24)
+sampledHighCorColumns <- sample(colnames(selectedWdiWorldCor), 15)
+
+
+sampledWdiWorldCor <- cor(select(wdiWorld, all_of(sampledHighCorColumns)))
+View(sampledWdiWorldCor)
+
+filter(serieCodesExplain, seriesCode %in% sampledHighCorColumns) %>% arrange(seriesCode)
+
+```
+
+```{r worldCorrplot, fig.height = 15, fig.width = 15}
+corrplot(sampledWdiWorldCor, order = 'alphabet')
+```
+
+
+
+```{r}
+
+wdiIncomeForAnimate <- wdiIncome %>%
+  select(c(countryName, year, SP.POP.TOTL, SP.POP.0014.TO.ZS, SP.POP.1564.TO.ZS, SP.POP.65UP.TO.ZS)) %>%
+  mutate(SP.POP.0014.TO.ZS=SP.POP.0014.TO.ZS*SP.POP.TOTL, SP.POP.1564.TO.ZS=SP.POP.1564.TO.ZS*SP.POP.TOTL, 
+         SP.POP.65UP.TO.ZS=SP.POP.65UP.TO.ZS*SP.POP.TOTL) %>%
+  gather('age', 'value', 3:6) %>%
+  arrange(countryName)
+
+ggplot(
+    wdiIncomeForAnimate, 
+    aes(x = year, y=value, color=age)
+    ) +
+  geom_line() +
+  scale_color_viridis_d() +
+  labs(x = "Rok", y = "Liczba ludności") +
+  geom_point() +
+  transition_reveal(year) +
+  facet_wrap(~countryName)
+```
+
+
+```{r regressionCalculateCorrelation}
+forRegresion <- merge(forRegWorld, forRegGold) %>% select(-c(countryName, usdPm, gbpPm, gbpAm)) %>% arrange(year, month)
+
+train <- slice(forRegresion, 1:floor(n()*0.6)) %>% select(-c(year, month))
+validation <- slice(forRegresion, floor(n()*0.6)+1:floor(n()*0.8)) %>% select(-c(year, month))
+test <- slice(forRegresion, floor(n()*0.8)+1:n()) %>% select(-c(year, month))
+
+#set.seed(23)
+fit <- train(usdAm ~ .,
+             data = train,
+             method = "ridge")
+
+rfGrid <- expand.grid(lambda = seq(0, 0.001, 0.0001))
+
+fitTune <- train(usdAm ~ .,
+             data = validation,
+             method = "ridge",
+             metric = "RMSE",
+             tuneGrid = rfGrid)
+
+predictions <- predict(fitTune, newdata = test)
+
+View(test %>% select(usdAm) %>% mutate(pred = predictions))
+
+```
+
