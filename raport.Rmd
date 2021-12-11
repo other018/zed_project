@@ -1,14 +1,27 @@
 ---
 title: "Raport"
 author: "Zuzanna Zelek"
-output: html_document
+date: "`r format(Sys.time(), '%d.%m.%Y')`"
+output:
+  html_document: 
+    toc: yes
+    toc_float: yes
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
 ```
 
-```{r preparingStage, message=FALSE, warning=FALSE}
+
+Ponadto raport powinien zaczynać się od rozdziału podsumowującego całą analizę, streszczającego najważniejsze spostrzeżenia analityka (ang. executive summary). Należy tu podkreślić, że właśnie zrozumienie danych, czytelna prezentacja wyników oraz stosowanie się do podstawowych zasad wizualizacji danych będą, obok technicznej strony raportu, podstawą do oceny. 
+
+## Biblioteki
+
+Przygotowanie wymaganych bibliotek.
+
+```{r preparingStage}
 if(!require(readxl)) install.packages("readxl", repos = "http://cran.us.r-project.org")
 library(readxl)
 
@@ -34,9 +47,20 @@ if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.
 library(caret)
 ```
 
+## Zapewnienie powtarzalności
+
+W celu zapewnienia powtarzalności raportu wymagane jest ustawienie ziarna generatora liczb losowych.
+
 ```{r repeatability}
-set.seed(24)
+setSeed <- function() {
+  set.seed(24)
+}
+setSeed()
 ```
+
+## Wczytywanie danych
+
+Wczytywanie danych z plików.
 
 ```{r readingFiles}
 worldDevelopmentIndicators  <- read_xlsx("Data pack/World_Development_Indicators.xlsx", na = '..')
@@ -52,20 +76,29 @@ bitcoinMkpru <- read.csv("Data pack/Bitcoin/BCHAIN-MKPRU.csv")
 bitcoinTrvou <- read.csv("Data pack/Bitcoin/BCHAIN-TRVOU.csv")
 ```
 
+## Czyszczenie danych
+
+Dane na temat wskaźników światowych zapisane zostały z częstotliwością raz na rok. Jednak aby nie ograniczać zanadto liczby przypadków wykorzystywanych w dalszej części do utowrzenia regresora, dane o cenach złota zostały zgrupowane na poziomie miesiąca. Wartość dla danego miesiąca została wyliczona jako mediana, aby uzyskać średnią wartość, jednak odporną na wartości odstające.
+
+Brakujące dane zostały pozostawione ze względu na ich mnogość. Przy takiej liczbie wskaźników jest duża szansa, że jakaś obserwacja (gospodarka w danym państwie w danym roku) zawiera brakującą daną. Usuwanie obserwacji z brakującymi danymi zdecydowanie zmniejszyłoby wielkość danych - co za tym idzie liczbę miarodajnych informacji. Ciężko też uzupełnić brakujące dane. Wydawać by się mogło, że najlepsza w tym przypadku byłaby interpolacja pomiędzy danymi z poprzedzającego oraz następującego roku. Sposób ten jednak mógłby ukryć znaczącą, jednoroczną zmianę (czego przykładem może być nałge załamanie gospodarek w związku z pandemią oraz nagły wzrost śmiertelności). Ze względu na pozostawienie brakujących danych w dalszej analizie wykorzystywano parametry funkcji pomijających brakujące dane.
+
 ```{r clearingData}
-#World development indicators
-wdi <- rename(worldDevelopmentIndicators, countryName = 'Country Name', countryCode = 'Country Code', seriesName = 'Series Name', seriesCode = 'Series Code')
-wdi <- slice(wdi, 1:(n()-5))
-wdi <- gather(wdi, "year", "value", 5:55)
-wdi <- select(wdi, -c('countryCode', 'seriesName'))
-wdi <- mutate(wdi, year=strtoi(substr(year, 1,4)))
-wdi <- pivot_wider(wdi, names_from=seriesCode, values_from = value, values_fill = 0)
+wdi <- worldDevelopmentIndicators %>%
+  select(-c('Country Code', 'Series Name')) %>%
+  rename(countryName = 'Country Name', seriesCode = 'Series Code') %>%
+  slice(1:(n()-5)) %>%
+  gather("year", "value", 3:53) %>%
+  mutate(year=strtoi(substr(year, 1,4))) %>%
+  pivot_wider(names_from=seriesCode, values_from = value)
 
-serieCodesExplain <- rename(worldDevelopmentIndicators, countryName = 'Country Name', countryCode = 'Country Code', seriesName = 'Series Name', seriesCode = 'Series Code')
-serieCodesExplain <- select(serieCodesExplain, seriesCode, seriesName)
-serieCodesExplain <- distinct(serieCodesExplain)
+serieCodesExplain <- worldDevelopmentIndicators %>%
+  slice(1:(n()-5)) %>%
+  rename(seriesName = 'Series Name', seriesCode = 'Series Code') %>%
+  select(seriesCode, seriesName) %>%
+  distinct()
 
-goldPrices <- group_by(goldPrices, year=substr(Date, 1, 4), month=substr(Date, 6, 7)) %>%
+gp <- goldPrices %>%
+  group_by(year=substr(Date, 1, 4), month=substr(Date, 6, 7)) %>%
   summarise(
     usdAm=median(USD..AM., na.rm=T),
     usdPm=median(USD..PM., na.rm=T),
@@ -74,7 +107,9 @@ goldPrices <- group_by(goldPrices, year=substr(Date, 1, 4), month=substr(Date, 6
     euroAm=median(EURO..AM., na.rm=T),
     euroPm=median(EURO..PM., na.rm=T)
   )
+```
 
+```{r clearingData_unused, echo=FALSE}
 spComposite <- group_by(spComposite, year=substr(Year, 1, 4)) %>%
   summarise(
     spComposite=median(S.P.Composite, na.rm=T),
@@ -99,125 +134,267 @@ bitcoinMkpru <- group_by(bitcoinMkpru, year=substr(Date, 1, 4)) %>%
 
 bitcoinTrvou <- group_by(bitcoinTrvou, year=substr(Date, 1, 4)) %>%
   summarise(value=median(Value, na.rm=T))
-
 ```
 
+## Podsumowanie danych
 
-```{r shortSummary}
+`World_Development_Indicators.xlsx` - plik zawierający dane o 208 państwach (lub grupach, jak na przykład 6 grup zawierających w nazwie `Income` czy nazwa kraju - `World`). Dane z lat 1970-2020 zostały przedstawione w postaci 213 wskaźników, z czego część z nich jest synonimiczna.
 
+Przykłady synonimicznych wskaźników:
+
+* NY.TAX.NIND.CD, NY.TAX.NIND.CN -> przedstawianie wartości wskaźników finansowych w dolarach i lokalnej walucie
+* SH.XPD.CHEX.PC.CD, SH.XPD.CHEX.GD.ZS -> przedstawianie wartości wskaźników finansowych w dolarach i % GDP
+* SP.URB.TOTL.IN.ZS, SP.URB.TOTL -> przedstawianie wskaźników o części populacji w postaci liczby oraz procentu całości
+
+```{r}
 knitr::kable(summary(wdi))
-knitr::kable(summary(goldPrices))
-
 ```
+
+`Gold prices.csv` - plik zawierający dane o cenach złota. Kolumny przedstawiają trzy waluty (USD, GBP, Euro), każdą w dwóch porach dnia (AM, PM).
+Dane zawarte w pliku przedstawiają okres od 02 stycznia 1968 roku, do 29 września 2021 roku. W orginalnym zbiorze obserwacje dotyczyły każdego dnia, jednak przedstawione podsumowanie jest dla danych już pogrupowanych względem miesięcy.
+
+```{r}
+knitr::kable(summary(gp))
+```
+
+## Sprawdzanie korelacji
+
+Do analizy korelacji zostały przygotowane dwie podtabele.
+
+Jedna z grup składa się z 5 elementów typu `Income` zawierających w sobie informacje o krajach o określonym poziomie zamożności. W orginalnym zbiorze jest 6 takich elementów. Należy jednak zauważyć że grupy `Middle income` wraz z `Low income` pokrywają w całości grupę `Low & middle income`, dlatego z analizy została wyłączona grupa łącząca oba poziomy zamożności.
+
+Drugą grupą są dane dla całego świata (`countryName == 'World'`).
+
+Obie grupy zachowują wiedzę o całości populacji, zmniejszając wielkość przetwarzanych danych. Dodatkowym argumentem jest zmniejszenie liczby brakujących wartości - dla pojedynczego państwa istnieje większa szansa że dany wskaźnik nie został zbadany.
 
 ```{r filteringWdi}
-
-incomeCountries <- c('High income', 'Upper middle income', 'Middle income', 'Low & middle income', 'Lower middle income', 'Low income')
-
+incomeCountries <- c('High income', 'Upper middle income', 'Middle income', 'Lower middle income', 'Low income')
 worldCountries <- c('World')
 
 wdiIncome <- filter(wdi, countryName %in% incomeCountries)
 wdiWorld <- filter(wdi, countryName %in% worldCountries)
-
 ```
 
+Schemat działania na obu grupach jest taki sam.
 
+1. Wyliczana jest korelacja dla wszystkich wskaźników.
+2. Pozostawienie jedynie korelacji w zakresie +/- (0.8-0.9) - próba pozostawienia silnych korelacji, przy jednoczesnym pominięciu korelacji oczywistych (stąd górna granica).
+3. Usunięcie z tabeli wierszy/kolumn wypełnionych wartościami NA (w pełni).
+4. W przypadku liczby kolumn większej od 15 wybierana jest losowa próbka 15 kolumn.
+5. Dla wybranych kolumn ponownie wyliczana jest korelacja.
+6. Wyświetlenie wybranych kolumn wraz z ich opisami.
+7. Wyświetlenie ostatecznego wykresu korelacji.
+
+### Korelacja dla grup Income
 ```{r corelateAllForIncome}
-wdiIncome[is.na(wdiIncome)] = 0
-wdiIncomeCor <- cor(select(wdiIncome, -c('countryName', 'year')))
-#corrplot(wdiIncomeCor)
+wdiIncomeCor <- cor(select(wdiIncome, -c('countryName', 'year')), use="pairwise.complete.obs")
 
 wdiIncomeCor[(wdiIncomeCor<0.8 & wdiIncomeCor>-0.8) | (wdiIncomeCor>0.9 | wdiIncomeCor<(-0.9))] = NA
-#wdiIncomeCor[wdiIncomeCor<0.8 & wdiIncomeCor>-0.8] = NA
-#View(colSums(abs(wdiIncomeCor), na.rm=T))
-#selectedWdiCor <- wdiCor[names(colSumsResult)[colSumsResult], names(colSumsResult)[colSumsResult]]
-
 
 wdiIncomeCor <- wdiIncomeCor+diag(NA, nrow(wdiIncomeCor))
-selectedWdiIncomeCor <- wdiIncomeCor[rowSums(is.na(wdiIncomeCor)) != ncol(wdiIncomeCor), colSums(is.na(wdiIncomeCor)) != nrow(wdiIncomeCor)]
+selectedWdiIncomeCor <- wdiIncomeCor[
+  rowSums(is.na(wdiIncomeCor)) != ncol(wdiIncomeCor),
+  colSums(is.na(wdiIncomeCor)) != nrow(wdiIncomeCor)
+]
 
-#set.seed(24)
-sampledHighCorColumns <- sample(colnames(selectedWdiIncomeCor), 15)
+setSeed()
 
+sampledIncomeHighCorColumns <- colnames(selectedWdiIncomeCor)
+sampledIncomeHighCorColumns <- if (length(sampledIncomeHighCorColumns) > 15) {
+    sample(sampledIncomeHighCorColumns, 15)
+  } else {
+    sampledIncomeHighCorColumns
+  }
 
-sampledWdiIncomeCor <- cor(select(wdiIncome, all_of(sampledHighCorColumns)))
-View(sampledWdiIncomeCor)
-
-filter(serieCodesExplain, seriesCode %in% sampledHighCorColumns) %>% arrange(seriesCode)
-
+sampledWdiIncomeCor <- cor(
+  select(wdiIncome, all_of(sampledIncomeHighCorColumns)),
+  use="pairwise.complete.obs"
+)
 ```
 
+```{r correlateColumnsForIncome}
+knitr::kable(
+  filter(serieCodesExplain, seriesCode %in% sampledIncomeHighCorColumns) %>%
+    arrange(seriesCode)
+)
+```
 
 ```{r incomeCorrplot, fig.height = 15, fig.width = 15}
-corrplot(sampledWdiIncomeCor, order = 'alphabet')
+corrplot(sampledWdiIncomeCor, order = 'alphabet', addCoef.col = 'black', col = colorRampPalette(c('#6fc712',"white","#12bcc4"))(100))
 ```
 
+#### Podsumowanie dla grup Income
+Wśród wybranych kolumn warty zauważenia jest wskaźnik `SP.POP.SCIE.RD.P6` - liczba naukowców zaangażowanych w prace badawczo-rozwojowe (na milion osób). Jest on stosunkowo silnie skorelowany z 13/14 pozostałych kolumn.
+Wskaźnik ten jest silnie negatywnie (-0.96) skorelowany z liczbą ludności wiejskiej - co zdaje się być intuicyjne, gdyż większość instytucji naukowych zlokalizowana jest w dużych miastach.
 
+Ze wskaźnikiem `SP.POP.SCIE.RD.P6` pozytywnie (0.92) skorelowana jest częstość występowania cukrzycy (jako procent populacji w wieku 20-79 lat) - `SH.STA.DIAB.ZS`.
+Może to wskazywać iż naukowcy prowadzą niezdrowy styl życia - zaangażowani w pracę nad badaniami mogą spożywać dania typu fast food, nie mieć czasu na aktywność fizyczną, a dla odreagowania stresu - uciekać w używki. Wskaźnik częstości występowania cukrzycy jest jednak negatywnie skorelowany ze wskaźnikiem prezentującym dane o usługach transportowych (`TM.VAL.TRAN.ZS.WT`).
+Wzrost procentowego udziału transportu wiąże się z większą liczbą ludzi zatrudnionych w tym sektorze, a negatywna korelacja (-0.82) z częstością występowania cukrzycy może oznaczać, iż pracownicy ci dbają o swoje zdrowie bardziej niż naukowcy.
+
+### Korelacja dla grupy World
 ```{r corelateAllForWorld}
-
-wdiWorld[is.na(wdiWorld)] = 0
-wdiWorldCor <- cor(select(wdiWorld, -c('countryName', 'year')))
-#corrplot(wdiWorldCor)
+wdiWorldCor <- cor(select(wdiWorld, -c('countryName', 'year')), use="pairwise.complete.obs")
 
 wdiWorldCor[(wdiWorldCor<0.8 & wdiWorldCor>-0.8) | (wdiWorldCor>0.9 | wdiWorldCor<(-0.9))] = NA
-#wdiWorldCor[wdiWorldCor<0.8 & wdiWorldCor>-0.8] = NA
-#View(colSums(abs(wdiWorldCor), na.rm=T))
-
 
 wdiWorldCor <- wdiWorldCor+diag(NA, nrow(wdiWorldCor))
-selectedWdiWorldCor <- wdiWorldCor[rowSums(is.na(wdiWorldCor)) != ncol(wdiWorldCor), colSums(is.na(wdiWorldCor)) != nrow(wdiWorldCor)]
+selectedWdiWorldCor <- wdiWorldCor[
+  rowSums(is.na(wdiWorldCor)) != ncol(wdiWorldCor),
+  colSums(is.na(wdiWorldCor)) != nrow(wdiWorldCor)
+]
 
-#set.seed(24)
-sampledHighCorColumns <- sample(colnames(selectedWdiWorldCor), 15)
+setSeed()
 
+sampledWorldHighCorColumns <- colnames(selectedWdiWorldCor)
+sampledWorldHighCorColumns <- if (length(sampledWorldHighCorColumns) > 15) {
+    sample(sampledWorldHighCorColumns, 15)
+  } else {
+    sampledWorldHighCorColumns
+  }
 
-sampledWdiWorldCor <- cor(select(wdiWorld, all_of(sampledHighCorColumns)))
-View(sampledWdiWorldCor)
+sampledWdiWorldCor <- cor(
+  select(wdiWorld, all_of(sampledWorldHighCorColumns)),
+  use="pairwise.complete.obs"
+)
+```
 
-filter(serieCodesExplain, seriesCode %in% sampledHighCorColumns) %>% arrange(seriesCode)
-
+```{r correlateColumnsForWorld}
+knitr::kable(
+  filter(serieCodesExplain, seriesCode %in% sampledWorldHighCorColumns) %>%
+    arrange(seriesCode)
+)
 ```
 
 ```{r worldCorrplot, fig.height = 15, fig.width = 15}
-corrplot(sampledWdiWorldCor, order = 'alphabet')
+corrplot(sampledWdiWorldCor, order = 'alphabet', addCoef.col = 'black', col = colorRampPalette(c('#6fc712',"white","#12bcc4"))(100))
 ```
 
+#### Podsumowanie dla grupy World
+Dla wskaźników światowych wybrane zostały wskaźniki o wysokich korelacjach.
+Ciekawy może być stopień negatywnej korelacji (-0.98) między odsetkiem zajmowanych miejsc w parlamentach państwowych przez kobiety (`SG.GEN.PARL.ZS`), a wskaźnikiem urodzeń na 1000 osób (`SP.DYN.CBRT.IN`). Można wywnioskować, że kobiety niestety muszą w życiu wybierać między karierą, a rodziną.
 
+Dwa wskaźniki odnoszące się do liczby zgłoszeń patentowych (`IP.PAT.NRES`, `IP.PAT.RESD`) są ze sobą silnie pozytywnie (0.92) skorelowane. Jest to o tyle ciekawe, gdyż można by się spodziewać stosunkowo stałej sumarycznej liczby zgłoszeń - od podmiotów krajowych oraz spoza kraju.
+Jednak gdyby tak było, wskaźniki te powinny być skorelowane negatywnie.
 
-```{r}
+Dla tych danych zaskakujące jest, że wartości 1 występują nie tylko na głównej przekątnej - są wskaźniki idealnie ze sobą skorelowane.
+W tym korelogramie znalazły się również znaki zapytania - symbolizują one wartość `NA`, która powstała ze względu na brak pełnych par dla danej pary zmiennych.
 
+## Wykres
+
+Animacja przedstawia zależności liczby ludności w poszczególnych grupach wiekowych (0-14, 15-64, 65+) dla grup Income.
+
+```{r animatedPlot}
 wdiIncomeForAnimate <- wdiIncome %>%
-  select(c(countryName, year, SP.POP.TOTL, SP.POP.0014.TO.ZS, SP.POP.1564.TO.ZS, SP.POP.65UP.TO.ZS)) %>%
-  mutate(SP.POP.0014.TO.ZS=SP.POP.0014.TO.ZS*SP.POP.TOTL, SP.POP.1564.TO.ZS=SP.POP.1564.TO.ZS*SP.POP.TOTL, 
-         SP.POP.65UP.TO.ZS=SP.POP.65UP.TO.ZS*SP.POP.TOTL) %>%
+  select(
+    countryName,
+    year,
+    SP.POP.TOTL,
+    SP.POP.0014.TO.ZS,
+    SP.POP.1564.TO.ZS,
+    SP.POP.65UP.TO.ZS
+  ) %>%
+  mutate(SP.POP.0014.TO.ZS=SP.POP.0014.TO.ZS*SP.POP.TOTL/100,
+         SP.POP.1564.TO.ZS=SP.POP.1564.TO.ZS*SP.POP.TOTL/100,
+         SP.POP.65UP.TO.ZS=SP.POP.65UP.TO.ZS*SP.POP.TOTL/100
+  ) %>%
   gather('age', 'value', 3:6) %>%
   arrange(countryName)
 
+wdiIncomeForAnimate$age = recode(
+  wdiIncomeForAnimate$age,
+  SP.POP.TOTL = "Razem",
+  SP.POP.0014.TO.ZS = "Do 14 lat",
+  SP.POP.1564.TO.ZS = "Od 15 do 64 lat",
+  SP.POP.65UP.TO.ZS = "Od 65 lat"
+)
+
 ggplot(
-    wdiIncomeForAnimate, 
+    wdiIncomeForAnimate,
     aes(x = year, y=value, color=age)
-    ) +
+  ) +
   geom_line() +
   scale_color_viridis_d() +
   labs(x = "Rok", y = "Liczba ludności") +
   geom_point() +
-  transition_reveal(year) +
+  #transition_reveal(year) +
   facet_wrap(~countryName)
 ```
 
+## Regresor przewidujący ceny złota
 
+Problemem przy próbie stworzenia regresora jest różna ziarnistość danych - w orginalnym zbiorze danych dla cen złota jest to dzień, dla wskaźników - rok.
+Ponieważ dostępne są dane z około 40 lat, ograniczenie się do obserwacji jednej na rok ograniczyło by zbiór danych do poziomu uniemożliwiającego przeprowadzenie uczenia maszynowego.
+Z drugiej strony powielanie danych odnośnie wskaźników do każdego dnia mogłoby utrudnić analizę, ze względu na konieczność przewidzenia ~365 różnych wartości cen złota, na podstawie jednej wartości wskaźnika.
+Z powyższych względów dane zostały przekształcone do obserwacji miesięcznych.
+
+Etapy tworzenia regresora:
+
+1. Dodatkowe czyszczenie danych - ograniczenie do lat [1980, 2020], usunięcie kolumn dla których liczba `NA` przekracza 30%, dodatkowo dla danych o wskaźnikach - zastąpienie brakujących danych medianą dla danej kolumny (zastąpienie brakujących danych wartością średnią nie powinna znacząco zaburzyć trendu danych).
+2. Połączenie danych oraz posortowanie względem daty (rok, miesiąc).
+3. Podzielenie zbioru na cztery części (25%, 35%, 20%, 20%).
+4. Uczenie na wstępnych danych w celu wybrania wskaźników istotnych dla modelu.
+5. Ograniczenie pozostałych zbiorów do istotnych wskaźników.
+6. Uczenie na zbiorze treningowym.
+7. Zweryfikowanie wyników dla poszczególnych parametrów, ustawienie `lambda = seq(0, 0.001, 0.0001)`.
+8. Znalezienie lepszej wartości parametru `lambda` z wykorzystaniem zbioru walidującego oraz metryki RSME.
+9. Dokonanie predykcji na zbiorze testowym oraz porównanie z wartościami rzeczywistymi.
+
+### Wstępne przetwarzanie danych + podział
 ```{r regressionCalculateCorrelation}
-forRegresion <- merge(forRegWorld, forRegGold) %>% select(-c(countryName, usdPm, gbpPm, gbpAm)) %>% arrange(year, month)
+wdiWorld <- filter(wdi, countryName %in% worldCountries)
 
-train <- slice(forRegresion, 1:floor(n()*0.6)) %>% select(-c(year, month))
+forRegGold <- filter(gp, year >= 1980 & year <= 2020)
+forRegGold <- forRegGold[,!sapply(forRegGold, function(x) mean(is.na(x)))>0.3]
+
+forRegWorld <- filter(wdiWorld, year >= 1980 & year <= 2020)
+forRegWorld <- forRegWorld[,!sapply(forRegWorld, function(x) mean(is.na(x)))>0.3]
+forRegWorld <- forRegWorld %>%
+  mutate(across(everything(), ~replace_na(.x, median(.x, na.rm = T))))
+
+forRegresion <- merge(forRegWorld, forRegGold) %>%
+  select(-c(countryName, usdPm, gbpPm, gbpAm)) %>%
+  arrange(year, month)
+
+preTrain <- slice(forRegresion, 1:floor(n()*0.25)) %>% select(-c(year, month))
+train <- slice(forRegresion, floor(n()*0.25)+1:floor(n()*0.6)) %>% select(-c(year, month))
 validation <- slice(forRegresion, floor(n()*0.6)+1:floor(n()*0.8)) %>% select(-c(year, month))
 test <- slice(forRegresion, floor(n()*0.8)+1:n()) %>% select(-c(year, month))
+```
 
-#set.seed(23)
-fit <- train(usdAm ~ .,
-             data = train,
+### Wstępna predykcja
+```{r prefit, fig.height = 15, fig.width = 15}
+preFit <- train(usdAm ~ .,
+             data = preTrain,
              method = "ridge")
 
+ggplot(varImp(preFit))
+
+selectedColumnsForRegresion <- rownames(
+  varImp(preFit)$importance %>% arrange(desc(Overall))
+  )[1:15]
+
+knitr::kable(
+  filter(serieCodesExplain, seriesCode %in% selectedColumnsForRegresion) %>%
+    arrange(seriesCode)
+)
+```
+
+### Uczenie maszynowe na danych treningowych
+```{r fit}
+train <- train %>% select(any_of(c('usdAm', selectedColumnsForRegresion)))
+validation <- validation %>% select(any_of(c('usdAm', selectedColumnsForRegresion)))
+test <- test %>% select(any_of(c('usdAm', selectedColumnsForRegresion)))
+
+fit <- train(usdAm ~ .,
+             data = train,
+             metric = "RSME",
+             method = "ridge")
+
+fit
+```
+
+### Optymalizacja parametrów
+```{r tuning}
 rfGrid <- expand.grid(lambda = seq(0, 0.001, 0.0001))
 
 fitTune <- train(usdAm ~ .,
@@ -226,9 +403,44 @@ fitTune <- train(usdAm ~ .,
              metric = "RMSE",
              tuneGrid = rfGrid)
 
+fitTune
+```
+
+#### Podsumowanie
+```{r regresionSummary}
 predictions <- predict(fitTune, newdata = test)
 
-View(test %>% select(usdAm) %>% mutate(pred = predictions))
+knitr::kable(test %>%
+               select(usdAm) %>%
+               mutate(pred = predictions, abs_of_diff=abs(pred-usdAm)))
 
+ggplot(varImp(fitTune))
 ```
+
+### Analiza miar oceny
+Po części optymalizującej parametry wyświetlony został obiekt `fitTune`.
+Przedstawia on wyniki dla trzech podstawowych miar oceny regresji - RSME, Rsquared oraz MAE.
+Dla wybranego parametru `lambda=0` wyniki przedstawiają się następująco:
+
+* RSME - pierwiastek błędu średniokwadratowego. Miara ta informuje o ile średnio estymator myli się w swoich obliczeniach.
+Dla wybranego modelu wynosi on 92.37935.
+Dla minimalnej wartości ceny złota dla oczyszczonego zbioru - 255.125 jest to ok 36.2%.
+Jednak dla średniej wartości - 686.5649 jest to już błąd rzędu 13.5%.
+* R^2^ - R-kwadrat. Miara ta wyjaśnia, w jakim stopniu wariancja jednej zmiennej jest wyjaśniana przez wariancję drugiej.
+Wynik 0.9444399 oznacza, że ponad 94% obserwowanej zmienności można wyjaśnić danymi wejściowymi.
+* MAE - miara podobna do RSME.
+MAE jest to średni błąd bezwzględny.
+Miara ta jednak jest wyliczenia jako wartość bezwzględna między wartością rzeczywistą, a estymowaną, w przeciwieństwie do RSME gdzie jest to wyliczane jako pierwiastek kwadratu błędu.
+Główną różnicą jest to, że miara RSME jest bardziej wrażliwa na większe błędy.
+Ponieważ miara MAE wynosi 69.67877, może to oznaczać, że zdarzają się w zbiorze duże pomyłki.
+
+### Analiza ważności atrybutów
+Na wyświetlonych wykresach ważności atrybutów dla modelu `preFit` oraz `fitTue` można zauważyć duże różnice w ważności atrybutów.
+W ostatecznym modelu trzy najbardziej znaczące wskaźniki - `EN.URB.LCTY.UR.ZS`, `SP.URB.GROW`, `SP.POP.0014.TO.ZS` w modelu wstępnym zajmowały odpowiednio 13, 10, i 14 miejsce.
+Pierwsze dwa wskaźniki odnoszą się do ludności w miastach - co może sugerować, że miejskie życie, napędzając gospodarkę, znacząco wpływa na cenę złota.
+Kolejne dwa odnoszą się do liczby ludzi w wieku <14 oraz 15-64 lat.
+Liczba dzieci wpływa na liczbę ludności, także w miastach.
+Wpływ liczby lundości w wieku 15-64 może wskazywać na to, że ludzie w wieku produkcyjnym, swoim trybem życia, sprzyjają rozwojowi gospodarki.
+
+
 
