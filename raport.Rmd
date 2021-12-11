@@ -1,5 +1,5 @@
 ---
-title: "Raport"
+title: "Analiza danych gospodarczych"
 author: "Zuzanna Zelek"
 date: "`r format(Sys.time(), '%d.%m.%Y')`"
 output:
@@ -14,8 +14,12 @@ knitr::opts_chunk$set(message = FALSE)
 knitr::opts_chunk$set(warning = FALSE)
 ```
 
+Zadany zbiór danych zawiera bardzo dużo wskaźników gospodarczych dla wielu państw.
+Mimo, że między niektórymi statystykami korelacje są oczywiste - jak na przykład korelacja między przyrostem naturalnym, a liczbą ludności, to przy tak dużej różnorodności można znaleźć ciekawe zależności.
+Dodatkowo przy tak dużej liczbie danych można utworzyć dobry regresor dzięki uczeniu maszynowemu.
+Problemem jednak jest poradzenie sobie z mnogością brakujących danych.
+Należy również dobrze przemyśleć wybory, na podstawie których dokonywane są uszczuplenia zbioru.
 
-Ponadto raport powinien zaczynać się od rozdziału podsumowującego całą analizę, streszczającego najważniejsze spostrzeżenia analityka (ang. executive summary). Należy tu podkreślić, że właśnie zrozumienie danych, czytelna prezentacja wyników oraz stosowanie się do podstawowych zasad wizualizacji danych będą, obok technicznej strony raportu, podstawą do oceny. 
 
 ## Biblioteki
 
@@ -80,7 +84,7 @@ bitcoinTrvou <- read.csv("Data pack/Bitcoin/BCHAIN-TRVOU.csv")
 
 Dane na temat wskaźników światowych zapisane zostały z częstotliwością raz na rok. Jednak aby nie ograniczać zanadto liczby przypadków wykorzystywanych w dalszej części do utowrzenia regresora, dane o cenach złota zostały zgrupowane na poziomie miesiąca. Wartość dla danego miesiąca została wyliczona jako mediana, aby uzyskać średnią wartość, jednak odporną na wartości odstające.
 
-Brakujące dane zostały pozostawione ze względu na ich mnogość. Przy takiej liczbie wskaźników jest duża szansa, że jakaś obserwacja (gospodarka w danym państwie w danym roku) zawiera brakującą daną. Usuwanie obserwacji z brakującymi danymi zdecydowanie zmniejszyłoby wielkość danych - co za tym idzie liczbę miarodajnych informacji. Ciężko też uzupełnić brakujące dane. Wydawać by się mogło, że najlepsza w tym przypadku byłaby interpolacja pomiędzy danymi z poprzedzającego oraz następującego roku. Sposób ten jednak mógłby ukryć znaczącą, jednoroczną zmianę (czego przykładem może być nałge załamanie gospodarek w związku z pandemią oraz nagły wzrost śmiertelności). Ze względu na pozostawienie brakujących danych w dalszej analizie wykorzystywano parametry funkcji pomijających brakujące dane.
+Brakujące dane zostały pozostawione ze względu na ich mnogość. Przy takiej liczbie wskaźników jest duża szansa, że jakaś obserwacja (gospodarka w danym państwie w danym roku) zawiera brakującą daną. Usuwanie obserwacji z brakującymi danymi zdecydowanie zmniejszyłoby wielkość danych, a co za tym idzie liczbę miarodajnych informacji. Ciężko też uzupełnić brakujące dane. Wydawać by się mogło, że najlepsza w tym przypadku byłaby interpolacja pomiędzy danymi z poprzedzającego oraz następującego roku. Sposób ten jednak mógłby ukryć znaczącą, jednoroczną zmianę (czego przykładem może być nagłe załamanie gospodarek w związku z pandemią oraz nagły wzrost śmiertelności). Ze względu na pozostawienie brakujących danych w dalszej analizie wykorzystywano parametry funkcji pomijających brakujące dane.
 
 ```{r clearingData}
 wdi <- worldDevelopmentIndicators %>%
@@ -151,7 +155,7 @@ knitr::kable(summary(wdi))
 ```
 
 `Gold prices.csv` - plik zawierający dane o cenach złota. Kolumny przedstawiają trzy waluty (USD, GBP, Euro), każdą w dwóch porach dnia (AM, PM).
-Dane zawarte w pliku przedstawiają okres od 02 stycznia 1968 roku, do 29 września 2021 roku. W orginalnym zbiorze obserwacje dotyczyły każdego dnia, jednak przedstawione podsumowanie jest dla danych już pogrupowanych względem miesięcy.
+Dane zawarte w pliku przedstawiają okres od 02 stycznia 1968 roku, do 29 września 2021 roku. W oryginalnym zbiorze obserwacje dotyczyły każdego dnia, jednak przedstawione podsumowanie jest dla danych już pogrupowanych względem miesięcy.
 
 ```{r}
 knitr::kable(summary(gp))
@@ -161,7 +165,7 @@ knitr::kable(summary(gp))
 
 Do analizy korelacji zostały przygotowane dwie podtabele.
 
-Jedna z grup składa się z 5 elementów typu `Income` zawierających w sobie informacje o krajach o określonym poziomie zamożności. W orginalnym zbiorze jest 6 takich elementów. Należy jednak zauważyć że grupy `Middle income` wraz z `Low income` pokrywają w całości grupę `Low & middle income`, dlatego z analizy została wyłączona grupa łącząca oba poziomy zamożności.
+Jedna z grup składa się z 5 elementów typu `Income` zawierających w sobie informacje o krajach o określonym poziomie zamożności. W oryginalnym zbiorze jest 6 takich elementów. Należy jednak zauważyć, że grupy `Middle income` wraz z `Low income` pokrywają w całości grupę `Low & middle income`, dlatego z analizy została wyłączona grupa łącząca oba poziomy zamożności.
 
 Drugą grupą są dane dla całego świata (`countryName == 'World'`).
 
@@ -179,7 +183,7 @@ Schemat działania na obu grupach jest taki sam.
 
 1. Wyliczana jest korelacja dla wszystkich wskaźników.
 2. Pozostawienie jedynie korelacji w zakresie +/- (0.8-0.9) - próba pozostawienia silnych korelacji, przy jednoczesnym pominięciu korelacji oczywistych (stąd górna granica).
-3. Usunięcie z tabeli wierszy/kolumn wypełnionych wartościami NA (w pełni).
+3. Usunięcie z tabeli wierszy/kolumn wypełnionych wartościami `NA` (w pełni).
 4. W przypadku liczby kolumn większej od 15 wybierana jest losowa próbka 15 kolumn.
 5. Dla wybranych kolumn ponownie wyliczana jest korelacja.
 6. Wyświetlenie wybranych kolumn wraz z ich opisami.
@@ -224,11 +228,11 @@ corrplot(sampledWdiIncomeCor, order = 'alphabet', addCoef.col = 'black', col = c
 ```
 
 #### Podsumowanie dla grup Income
-Wśród wybranych kolumn warty zauważenia jest wskaźnik `SP.POP.SCIE.RD.P6` - liczba naukowców zaangażowanych w prace badawczo-rozwojowe (na milion osób). Jest on stosunkowo silnie skorelowany z 13/14 pozostałych kolumn.
+Wśród wybranych kolumn wartym zauważenia jest wskaźnik `SP.POP.SCIE.RD.P6` - liczba naukowców zaangażowanych w prace badawczo-rozwojowe (na milion osób). Jest on stosunkowo silnie skorelowany z 13/14 pozostałych kolumn.
 Wskaźnik ten jest silnie negatywnie (-0.96) skorelowany z liczbą ludności wiejskiej - co zdaje się być intuicyjne, gdyż większość instytucji naukowych zlokalizowana jest w dużych miastach.
 
 Ze wskaźnikiem `SP.POP.SCIE.RD.P6` pozytywnie (0.92) skorelowana jest częstość występowania cukrzycy (jako procent populacji w wieku 20-79 lat) - `SH.STA.DIAB.ZS`.
-Może to wskazywać iż naukowcy prowadzą niezdrowy styl życia - zaangażowani w pracę nad badaniami mogą spożywać dania typu fast food, nie mieć czasu na aktywność fizyczną, a dla odreagowania stresu - uciekać w używki. Wskaźnik częstości występowania cukrzycy jest jednak negatywnie skorelowany ze wskaźnikiem prezentującym dane o usługach transportowych (`TM.VAL.TRAN.ZS.WT`).
+Może to wskazywać, iż naukowcy prowadzą niezdrowy styl życia - zaangażowani w pracę nad badaniami mogą spożywać dania typu fast food, nie mieć czasu na aktywność fizyczną, a dla odreagowania stresu uciekać w używki. Wskaźnik częstości występowania cukrzycy jest jednak negatywnie skorelowany ze wskaźnikiem prezentującym dane o usługach transportowych (`TM.VAL.TRAN.ZS.WT`).
 Wzrost procentowego udziału transportu wiąże się z większą liczbą ludzi zatrudnionych w tym sektorze, a negatywna korelacja (-0.82) z częstością występowania cukrzycy może oznaczać, iż pracownicy ci dbają o swoje zdrowie bardziej niż naukowcy.
 
 ### Korelacja dla grupy World
@@ -281,7 +285,7 @@ W tym korelogramie znalazły się również znaki zapytania - symbolizują one w
 
 ## Wykres
 
-Animacja przedstawia zależności liczby ludności w poszczególnych grupach wiekowych (0-14, 15-64, 65+) dla grup Income.
+Animacja przedstawia liczbę ludności w poszczególnych grupach wiekowych (0-14, 15-64, 65+) dla grup `Income`.
 
 ```{r animatedPlot}
 wdiIncomeForAnimate <- wdiIncome %>%
@@ -316,20 +320,20 @@ ggplot(
   scale_color_viridis_d() +
   labs(x = "Rok", y = "Liczba ludności") +
   geom_point() +
-  #transition_reveal(year) +
+  transition_reveal(year) +
   facet_wrap(~countryName)
 ```
 
 ## Regresor przewidujący ceny złota
 
-Problemem przy próbie stworzenia regresora jest różna ziarnistość danych - w orginalnym zbiorze danych dla cen złota jest to dzień, dla wskaźników - rok.
-Ponieważ dostępne są dane z około 40 lat, ograniczenie się do obserwacji jednej na rok ograniczyło by zbiór danych do poziomu uniemożliwiającego przeprowadzenie uczenia maszynowego.
+Problemem przy próbie stworzenia regresora jest różna ziarnistość danych - w oryginalnym zbiorze danych dla cen złota jest to dzień, dla wskaźników - rok.
+Ponieważ dostępne są dane z około 40 lat, ograniczenie się do obserwacji jednej na rok ograniczyłoby zbiór danych do poziomu uniemożliwiającego przeprowadzenie uczenia maszynowego.
 Z drugiej strony powielanie danych odnośnie wskaźników do każdego dnia mogłoby utrudnić analizę, ze względu na konieczność przewidzenia ~365 różnych wartości cen złota, na podstawie jednej wartości wskaźnika.
 Z powyższych względów dane zostały przekształcone do obserwacji miesięcznych.
 
 Etapy tworzenia regresora:
 
-1. Dodatkowe czyszczenie danych - ograniczenie do lat [1980, 2020], usunięcie kolumn dla których liczba `NA` przekracza 30%, dodatkowo dla danych o wskaźnikach - zastąpienie brakujących danych medianą dla danej kolumny (zastąpienie brakujących danych wartością średnią nie powinna znacząco zaburzyć trendu danych).
+1. Dodatkowe czyszczenie danych - ograniczenie do lat [1980 - 2020], usunięcie kolumn dla których liczba `NA` przekracza 30%, dodatkowo dla danych o wskaźnikach - zastąpienie brakujących danych medianą dla danej kolumny (zastąpienie brakujących danych wartością średnią nie powinna znacząco zaburzyć trendu danych).
 2. Połączenie danych oraz posortowanie względem daty (rok, miesiąc).
 3. Podzielenie zbioru na cztery części (25%, 35%, 20%, 20%).
 4. Uczenie na wstępnych danych w celu wybrania wskaźników istotnych dla modelu.
@@ -430,17 +434,18 @@ Jednak dla średniej wartości - 686.5649 jest to już błąd rzędu 13.5%.
 Wynik 0.9444399 oznacza, że ponad 94% obserwowanej zmienności można wyjaśnić danymi wejściowymi.
 * MAE - miara podobna do RSME.
 MAE jest to średni błąd bezwzględny.
-Miara ta jednak jest wyliczenia jako wartość bezwzględna między wartością rzeczywistą, a estymowaną, w przeciwieństwie do RSME gdzie jest to wyliczane jako pierwiastek kwadratu błędu.
+Miara ta jednak jest wyliczana jako wartość bezwzględna między wartością rzeczywistą, a estymowaną, w przeciwieństwie do RSME gdzie jest to wyliczane jako pierwiastek kwadratu błędu.
 Główną różnicą jest to, że miara RSME jest bardziej wrażliwa na większe błędy.
 Ponieważ miara MAE wynosi 69.67877, może to oznaczać, że zdarzają się w zbiorze duże pomyłki.
 
 ### Analiza ważności atrybutów
 Na wyświetlonych wykresach ważności atrybutów dla modelu `preFit` oraz `fitTue` można zauważyć duże różnice w ważności atrybutów.
-W ostatecznym modelu trzy najbardziej znaczące wskaźniki - `EN.URB.LCTY.UR.ZS`, `SP.URB.GROW`, `SP.POP.0014.TO.ZS` w modelu wstępnym zajmowały odpowiednio 13, 10, i 14 miejsce.
-Pierwsze dwa wskaźniki odnoszą się do ludności w miastach - co może sugerować, że miejskie życie, napędzając gospodarkę, znacząco wpływa na cenę złota.
+W ostatecznym modelu trzy najbardziej znaczące wskaźniki - `EN.URB.LCTY.UR.ZS`, `SP.URB.GROW`, `SP.POP.0014.TO.ZS` w modelu wstępnym zajmowały odpowiednio 13, 10 i 14 miejsce.
+
+W wynikowym modelu pierwsze dwa wskaźniki odnoszą się do ludności w miastach - co może sugerować, że miejskie życie, napędzając gospodarkę, znacząco wpływa na cenę złota.
 Kolejne dwa odnoszą się do liczby ludzi w wieku <14 oraz 15-64 lat.
 Liczba dzieci wpływa na liczbę ludności, także w miastach.
-Wpływ liczby lundości w wieku 15-64 może wskazywać na to, że ludzie w wieku produkcyjnym, swoim trybem życia, sprzyjają rozwojowi gospodarki.
+Wpływ liczby lundości w wieku 15-64 może wskazywać na to, że ludzie w wieku produkcyjnym swoim trybem życia sprzyjają rozwojowi gospodarki.
 
 
 
